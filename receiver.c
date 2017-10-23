@@ -5,6 +5,8 @@ void init_receiver(Receiver * receiver,
 {
     receiver->recv_id = id;
     receiver->input_framelist_head = NULL;
+    receiver->last_frame_rcvd = -1;
+    receiver->largest_acceptable_frame = receiver->last_frame_rcvd + WINDOW_SIZE;
 }
 
 
@@ -17,31 +19,50 @@ void handle_incoming_msgs(Receiver * receiver,
     //    3) Check whether the frame is corrupted
     //    4) Check whether the frame is for this receiver
     //    5) Do sliding window protocol for sender/receiver pair
-
+ 
     int incoming_msgs_length = ll_get_length(receiver->input_framelist_head);
     while (incoming_msgs_length > 0)
     {
         //Pop a node off the front of the link list and update the count
         LLnode * ll_inmsg_node = ll_pop_node(&receiver->input_framelist_head);
         incoming_msgs_length = ll_get_length(receiver->input_framelist_head);
-
-        //DUMMY CODE: Print the raw_char_buf
-        //NOTE: You should not blindly print messages!
-        //      Ask yourself: Is this message really for me?
-        //                    Is this message corrupted?
-        //                    Is this an old, retransmitted message?           
+         
         char * raw_char_buf = (char *) ll_inmsg_node->value;
         Frame * inframe = convert_char_to_frame(raw_char_buf);
-        
+
         //Free raw_char_buf
         free(raw_char_buf);
-        
-        printf("<RECV_%d>:[%s]\n", receiver->recv_id, inframe->data);
+
+        if (inframe->recvno == receiver->recv_id)
+        {
+            receiver->last_frame_rcvd = inframe->seqno;
+            Frame * outframe = (Frame *) malloc(sizeof(Frame));
+            outframe->seqno = receiver->last_frame_rcvd;
+            outframe->recvno = receiver->recv_id;
+            outframe->sendno = inframe->sendno;
+            outframe->content_length = 4;
+            char * output_buf = convert_frame_to_char(outframe);
+            ll_append_node(outgoing_frames_head_ptr, output_buf);
+            
+            printf ("Receiver frame:\n\tseqno: %d\n\trecvno: %d\n\tsendno: %d\n\tcontent: %d\n\tcrc: %d\n\tdata: %s\n\n",
+                    inframe->seqno,
+                    inframe->recvno,
+                    inframe->sendno,
+                    inframe->content_length,
+                    inframe->crc_polynomial,
+                    inframe->data
+                    );
+                    
+
+            printf("<RECV_%d>:[ACK %d|%s]\n", receiver->recv_id, inframe->seqno, inframe->data);
+
+        }
 
         free(inframe);
         free(ll_inmsg_node);
     }
 }
+
 
 void * run_receiver(void * input_receiver)
 {    
@@ -98,10 +119,10 @@ void * run_receiver(void * input_receiver)
                                    &receiver->buffer_mutex,
                                    &time_spec);
         }
-
+        
         handle_incoming_msgs(receiver,
                              &outgoing_frames_head);
-
+        
         pthread_mutex_unlock(&receiver->buffer_mutex);
         
         //CHANGE THIS AT YOUR OWN RISK!

@@ -4,14 +4,20 @@ void init_sender(Sender * sender, int id)
 {
     //TODO: You should fill in this function as necessary
     sender->send_id = id;
+    sender->seqno = 0;
+    sender->last_ack_rcvd = -1;
     sender->input_cmdlist_head = NULL;
     sender->input_framelist_head = NULL;
 }
 
 struct timeval * sender_get_next_expiring_timeval(Sender * sender)
 {
-    //TODO: You should fill in this function so that it returns the next timeout that should occur
-    return NULL;
+    struct timeval * expiring_timeval = (struct timeval *) malloc (sizeof(struct timeval));
+    if (gettimeofday(expiring_timeval, NULL))
+        printf("error getting expiring timveal");
+        return NULL;
+    expiring_timeval->tv_usec += 100000;
+    return expiring_timeval;
 }
 
 
@@ -23,7 +29,23 @@ void handle_incoming_acks(Sender * sender,
     //    2) Convert the char * buffer to a Frame data type
     //    3) Check whether the frame is corrupted
     //    4) Check whether the frame is for this sender
-    //    5) Do sliding window protocol for sender/receiver pair   
+    //    5) Do sliding window protocol for sender/receiver pair
+
+    int incoming_acks_length = ll_get_length(sender->input_framelist_head);
+    while (incoming_acks_length > 0)
+    {
+        LLnode * ll_inmsg_node = ll_pop_node(&sender->input_framelist_head);
+        incoming_acks_length = ll_get_length(sender->input_framelist_head);
+        char * raw_char_buf = (char *) ll_inmsg_node->value;
+        Frame * inframe = convert_char_to_frame(raw_char_buf);
+        if (inframe->sendno == sender->send_id)
+        {
+            sender->last_ack_rcvd = inframe->seqno;
+            printf("<SEND_%d>:[ACK %d]\n", sender->send_id, sender->last_ack_rcvd);
+        }
+
+    }
+
 }
 
 
@@ -39,7 +61,7 @@ void handle_input_cmds(Sender * sender,
     int input_cmd_length = ll_get_length(sender->input_cmdlist_head);
     
         
-    //Recheck the command queue length to see if stdin_thread dumped a command on us
+    //Recheck the command queue length to see if stdin_thread dusmped a command on us
     input_cmd_length = ll_get_length(sender->input_cmdlist_head);
     while (input_cmd_length > 0)
     {
@@ -50,7 +72,7 @@ void handle_input_cmds(Sender * sender,
         //Cast to Cmd type and free up the memory for the node
         Cmd * outgoing_cmd = (Cmd *) ll_input_cmd_node->value;
         free(ll_input_cmd_node);
-            
+
 
         //DUMMY CODE: Add the raw char buf to the outgoing_frames list
         //NOTE: You should not blindly send this message out!
@@ -68,6 +90,22 @@ void handle_input_cmds(Sender * sender,
             //This is probably ONLY one step you want
             Frame * outgoing_frame = (Frame *) malloc (sizeof(Frame));
             strcpy(outgoing_frame->data, outgoing_cmd->message);
+            outgoing_frame->seqno = sender->seqno;
+            outgoing_frame->recvno = outgoing_cmd->dst_id;
+            outgoing_frame->sendno = outgoing_cmd->src_id;
+            outgoing_frame->content_length = strlen(outgoing_frame->data) + 1;
+            short temp = 0;
+            outgoing_frame->crc_polynomial = temp;
+
+
+            printf ("Sender frame:\n\tseqno: %d\n\trecvno: %d\n\tsendno: %d\n\tcontent: %d\n\tcrc: %d\n\tdata: %s\n\n",
+                    outgoing_frame->seqno,
+                    outgoing_frame->recvno,
+                    outgoing_frame->sendno,
+                    outgoing_frame->content_length,
+                    outgoing_frame->crc_polynomial,
+                    outgoing_frame->data
+                    );
 
             //At this point, we don't need the outgoing_cmd
             free(outgoing_cmd->message);
@@ -75,8 +113,7 @@ void handle_input_cmds(Sender * sender,
 
             //Convert the message to the outgoing_charbuf
             char * outgoing_charbuf = convert_frame_to_char(outgoing_frame);
-            ll_append_node(outgoing_frames_head_ptr,
-                           outgoing_charbuf);
+            ll_append_node(outgoing_frames_head_ptr, outgoing_charbuf);
             free(outgoing_frame);
         }
     }   
@@ -90,6 +127,11 @@ void handle_timedout_frames(Sender * sender,
     //    1) Iterate through the sliding window protocol information you maintain for each receiver
     //    2) Locate frames that are timed out and add them to the outgoing frames
     //    3) Update the next timeout field on the outgoing frames
+    int receiver_num;
+    for (receiver_num = 0; receiver_num < glb_receivers_array_length; receiver_num++)
+    {
+
+    }
 }
 
 
@@ -121,6 +163,7 @@ void * run_sender(void * input_sender)
         //Get the current time
         gettimeofday(&curr_timeval, 
                      NULL);
+
 
         //time_spec is a data structure used to specify when the thread should wake up
         //The time is specified as an ABSOLUTE (meaning, conceptually, you specify 9/23/2010 @ 1pm, wakeup)
@@ -159,7 +202,7 @@ void * run_sender(void * input_sender)
             time_spec.tv_nsec -= 1000000000;
         }
 
-        
+
         //*****************************************************************************************
         //NOTE: Anything that involves dequeing from the input frames or input commands should go 
         //      between the mutex lock and unlock, because other threads CAN/WILL access these structures
@@ -179,7 +222,9 @@ void * run_sender(void * input_sender)
             pthread_cond_timedwait(&sender->buffer_cv, 
                                    &sender->buffer_mutex,
                                    &time_spec);
+            
         }
+
         //Implement this
         handle_incoming_acks(sender,
                              &outgoing_frames_head);
@@ -189,7 +234,6 @@ void * run_sender(void * input_sender)
                           &outgoing_frames_head);
 
         pthread_mutex_unlock(&sender->buffer_mutex);
-
 
         //Implement this
         handle_timedout_frames(sender,

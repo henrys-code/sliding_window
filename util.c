@@ -121,27 +121,35 @@ void print_cmd(Cmd * cmd)
 
 char * convert_frame_to_char(Frame * frame)
 {
-    //TODO: You should implement this as necessary
     char * char_buffer = (char *) malloc(MAX_FRAME_SIZE);
-    memset(char_buffer,
-           0,
-           MAX_FRAME_SIZE);
-    memcpy(char_buffer, 
-           frame->data,
-           FRAME_PAYLOAD_SIZE);
+    char * index = char_buffer;
+
+    memset(char_buffer, 0, MAX_FRAME_SIZE);
+    memcpy(index++, &frame->seqno, 1);       
+    memcpy(index++, &frame->recvno, 1);
+    memcpy(index++, &frame->sendno, 1);
+    memcpy(index++, &frame->content_length, 1);
+    memcpy(index, &frame->crc_polynomial, 2);
+    index += 2;
+    strncpy(index, frame->data, frame->content_length);
+    
     return char_buffer;
 }
 
 
 Frame * convert_char_to_frame(char * char_buf)
 {
-    //TODO: You should implement this as necessary
     Frame * frame = (Frame *) malloc(sizeof(Frame));
-    memset(frame->data,
-           0,
-           sizeof(char)*sizeof(frame->data));
-    memcpy(frame->data, 
-           char_buf,
-           sizeof(char)*sizeof(frame->data));
+    char * index = char_buf;
+
+    memset(frame->data, 0, FRAME_PAYLOAD_SIZE);
+    memcpy(&frame->seqno, index++, 1);
+    memcpy(&frame->recvno, index++, 1);
+    memcpy(&frame->sendno, index++, 1);
+    memcpy(&frame->content_length, index++, 1);
+    memcpy(&frame->crc_polynomial, index, 2);
+    index += 2;
+    strncpy(frame->data, index, frame->content_length);
+
     return frame;
 }

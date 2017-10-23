@@ -15,6 +15,7 @@
 #include "communicate.h"
 #include "receiver.h"
 #include "sender.h"
+#include "crc8.h"
 
 int main(int argc, char *argv[])
 {
